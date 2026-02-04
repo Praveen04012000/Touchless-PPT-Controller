@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Touchless Presentation | Gesture Control</title>
+    
+    <!-- CSS Dependencies -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reveal.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/theme/black.min.css">
+
+    <style>
+        :root {
+            --accent: #00ff88;
+            --error: #ff4444;
+            --warn: #ffaa00;
+            --ui-bg: rgba(20, 20, 20, 0.8);
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #111;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            color: white;
+        }
+
+        /* --- Layers --- */
+        #presentation-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 10;
+            transition: transform 0.3s ease;
+        }
+
+        #visual-fx-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 20;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 30;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        /* --- UI Components --- */
+        .status-bar {
+            background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+            padding: 20px;
+            text-align: center;
+            font-size: 14px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            font-weight: 600;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #555;
+            box-shadow: 0 0 10px rgba(255,255,255,0.1);
+            transition: all 0.3s ease;
+        }
+
+        .status-indicator.active { background-color: var(--accent); box-shadow: 0 0 15px var(--accent); }
+        .status-indicator.paused { background-color: var(--warn); }
+        .status-indicator.error { background-color: var(--error); }
+        .status-indicator.zoom { background-color: #00aaff; box-shadow: 0 0 15px #00aaff; }
+
+        .gesture-guide {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 30px;
+            background: var(--ui-bg);
+            padding: 15px 30px;
+            border-radius: 30px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: opacity 0.5s ease;
+        }
+        
+        .gesture-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            opacity: 0.6;
+        }
+
+        .gesture-item.active {
+            opacity: 1;
+            color: var(--accent);
+            transform: scale(1.1);
+        }
+
+        .gesture-icon { font-size: 24px; }
+        .gesture-label { font-size: 9px; opacity: 0.8; letter-spacing: 1px; }
+
+        /* --- Upload Screen --- */
+        #upload-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto;
+        }
+
+        .upload-box {
+            border: 2px dashed rgba(255,255,255,0.2);
+            padding: 50px;
+            border-radius: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+            max-width: 500px;
+        }
+
+        .upload-box:hover { border-color: var(--accent); background: rgba(0, 255, 136, 0.05); }
+
+        .btn-upload {
+            background: white;
+            color: black;
+            border: none;
+            padding: 15px 40px;
+            font-size: 16px;
+            border-radius: 50px;
+            cursor: pointer;
+            margin-top: 20px;
+            font-weight: bold;
+            transition: transform 0.2s;
+        }
+
+        .btn-upload:hover { transform: scale(1.05); }
+
+        .format-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background: #333;
+            font-size: 10px;
+            margin: 0 5px;
+            color: #ccc;
+        }
+
+        /* --- Hidden Elements --- */
+        .video-input {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            width: 160px;
+            height: 120px;
+            border-radius: 10px;
+            opacity: 0.2;
+            z-index: 50;
+            transform: scaleX(-1); /* Mirror */
+        }
+
+        /* --- Reveal Overrides --- */
+        .reveal { background-color: transparent; }
+        .reveal .slides section { 
+            height: 100%; 
+            display: flex !important; 
+            flex-direction: column; 
+            justify-content: center; 
+            align-items: center;
+        }
+        
+        /* Zoom Effect Class */
+        .reveal.zoomed .slides {
+            transform: scale(1.5);
+            transition: transform 0.3s ease;
+        }
+
+        canvas.pdf-page {
+            max-width: 100%;
+            max-height: 100%;
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(255,255,255,0.1);
+            border-left-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <!-- Upload Overlay -->
+    <div id="upload-overlay">
+        <h1>Touchless Presenter</h1>
+        <p style="opacity: 0.6; margin-bottom: 30px;">Webcam Gesture Control System</p>
+        
+        <div class="upload-box" id="drop-zone">
+            <div id="loading-area" style="display:none;">
+                <div class="spinner"></div>
+                <p>Processing Slides...</p>
+            </div>
+            <div id="input-area">
+                <p>Upload a presentation to begin</p>
+                <div style="margin: 15px 0;">
+                    <span class="format-badge">PDF (Recommended)</span>
+                    <span class="format-badge">PPTX (Text Only)</span>
+                </div>
+                <input type="file" id="file-input" accept=".pdf,.pptx" style="display: none;">
+                <button class="btn-upload" onclick="document.getElementById('file-input').click()">Select File</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Layers -->
+    <div id="presentation-layer">
+        <div class="reveal">
+            <div class="slides" id="slides-container">
+                <!-- Slides will be injected here -->
+                <section>
+                    <h1>Ready</h1>
+                    <p>Show ✋ Open Palm to Start</p>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="visual-fx-layer"></canvas>
+
+    <div id="ui-layer">
+        <div class="status-bar">
+            <div class="status-indicator" id="status-dot"></div>
+            <span id="status-text">INITIALIZING...</span>
+        </div>
+
+        <div class="gesture-guide" id="guide">
+            <div class="gesture-item" id="icon-palm">
+                <span class="gesture-icon">✋</span>
+                <span class="gesture-label">START</span>
+            </div>
+            <div class="gesture-item" id="icon-swipe">
+                <span class="gesture-icon">↔️</span>
+                <span class="gesture-label">SWIPE</span>
+            </div>
+            <div class="gesture-item" id="icon-laser">
+                <span class="gesture-icon">✌️</span>
+                <span class="gesture-label">LASER</span>
+            </div>
+            <div class="gesture-item" id="icon-circle">
+                <span class="gesture-icon">🔄</span>
+                <span class="gesture-label">ZOOM</span>
+            </div>
+            <div class="gesture-item" id="icon-fist">
+                <span class="gesture-icon">✊</span>
+                <span class="gesture-label">PAUSE</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden Video Feed -->
+    <video class="video-input"></video>
+
+    <!-- Dependencies -->
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- JSZip for PPTX parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- MediaPipe -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <!-- Reveal.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reveal.min.js"></script>
+    <!-- PDF.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+    </script>
+
+    <script>
+        /**
+         * APP ARCHITECTURE
+         * 1. AppState: Manages Global State
+         * 2. PresentationEngine: Wraps Reveal.js + PDF/PPTX Rendering
+         * 3. GestureCore: MediaPipe Logic + Action Detection + Circle Detection
+         * 4. VisualSystem: Three.js Particles
+         */
+
+        /* --- 1. App State & Globals --- */
+        const STATE = {
+            mode: 'UPLOAD', // UPLOAD, READY, PRESENTING, PAUSED
+            handPresent: false,
+            laserActive: false,
+            zoomActive: false,
+            pointerX: 0,
+            pointerY: 0,
+            lastGestureTime: 0
+        };
+
+        const DOM = {
+            statusText: document.getElementById('status-text'),
+            statusDot: document.getElementById('status-dot'),
+            uploadOverlay: document.getElementById('upload-overlay'),
+            slidesContainer: document.getElementById('slides-container'),
+            video: document.querySelector('.video-input'),
+            canvas: document.getElementById('visual-fx-layer'),
+            presentationLayer: document.querySelector('.reveal')
+        };
+
+        function setStatus(text, type = 'normal') {
+            DOM.statusText.innerText = text;
+            DOM.statusDot.className = 'status-indicator ' + type;
+        }
+
+        /* --- 2. Presentation Engine (PDF/PPTX -> Reveal) --- */
+        const Presentation = {
+            deck: null,
+            
+            init: () => {
+                Presentation.deck = new Reveal({
+                    controls: false,
+                    progress: true,
+                    center: true,
+                    hash: false,
+                    transition: 'slide',
+                    embedded: true
+                });
+                Presentation.deck.initialize();
+            },
+
+            handleUpload: async (file) => {
+                document.getElementById('input-area').style.display = 'none';
+                document.getElementById('loading-area').style.display = 'block';
+
+                try {
+                    if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+                        await Presentation.loadPDF(file);
+                    } else if (file.name.endsWith('.pptx')) {
+                        await Presentation.loadPPTX(file);
+                    } else {
+                        throw new Error("Unsupported file type");
+                    }
+
+                    // Success Transition
+                    Presentation.deck.sync();
+                    Presentation.deck.slide(0);
+                    
+                    DOM.uploadOverlay.style.opacity = '0';
+                    setTimeout(() => DOM.uploadOverlay.style.display = 'none', 500);
+                    
+                    STATE.mode = 'READY';
+                    setStatus('SHOW PALM TO START', 'paused');
+
+                } catch (e) {
+                    console.error(e);
+                    setStatus('ERROR LOADING FILE', 'error');
+                    document.getElementById('loading-area').style.display = 'none';
+                    document.getElementById('input-area').style.display = 'block';
+                    alert("Error loading file. For PPTX, only text content is extracted. For best results, export to PDF.");
+                }
+            },
+
+            loadPDF: async (file) => {
+                const fileReader = new FileReader();
+                return new Promise((resolve, reject) => {
+                    fileReader.onload = async function() {
+                        try {
+                            const typedarray = new Uint8Array(this.result);
+                            const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                            DOM.slidesContainer.innerHTML = ''; 
+
+                            for (let i = 1; i <= pdf.numPages; i++) {
+                                const page = await pdf.getPage(i);
+                                const viewport = page.getViewport({ scale: 2.0 }); 
+
+                                const section = document.createElement('section');
+                                const canvas = document.createElement('canvas');
+                                canvas.className = 'pdf-page';
+                                const context = canvas.getContext('2d');
+                                
+                                canvas.height = viewport.height;
+                                canvas.width = viewport.width;
+
+                                await page.render({ canvasContext: context, viewport: viewport }).promise;
+                                section.appendChild(canvas);
+                                DOM.slidesContainer.appendChild(section);
+                            }
+                            resolve();
+                        } catch(e) { reject(e); }
+                    };
+                    fileReader.readAsArrayBuffer(file);
+                });
+            },
+
+            loadPPTX: async (file) => {
+                // Simple PPTX Text Extractor using JSZip
+                const zip = await JSZip.loadAsync(file);
+                
+                // Find all slide XML files
+                const slideFiles = Object.keys(zip.files).filter(name => name.match(/ppt\/slides\/slide\d+\.xml/));
+                
+                // Sort slides numerically
+                slideFiles.sort((a, b) => {
+                    const numA = parseInt(a.match(/slide(\d+)\.xml/)[1]);
+                    const numB = parseInt(b.match(/slide(\d+)\.xml/)[1]);
+                    return numA - numB;
+                });
+
+                if (slideFiles.length === 0) throw new Error("No slides found in PPTX");
+
+                DOM.slidesContainer.innerHTML = ''; 
+
+                for (const filename of slideFiles) {
+                    const content = await zip.file(filename).async("string");
+                    
+                    // Simple Regex to extract text inside <a:t> tags
+                    const textMatches = content.match(/<a:t>(.*?)<\/a:t>/g);
+                    
+                    const section = document.createElement('section');
+                    section.style.textAlign = "left";
+                    section.style.padding = "40px";
+
+                    let slideHTML = `<h3>Slide ${filename.match(/\d+/)[0]}</h3>`;
+                    
+                    if (textMatches && textMatches.length > 0) {
+                        const cleanTexts = textMatches.map(t => t.replace(/<\/?a:t>/g, ''));
+                        // Dedup and join
+                        const uniqueTexts = [...new Set(cleanTexts)].filter(t => t.trim().length > 0);
+                        
+                        slideHTML += `<div style="text-align: left; font-size: 30px; line-height: 1.5;">`;
+                        uniqueTexts.forEach(text => {
+                            slideHTML += `<p>• ${text}</p>`;
+                        });
+                        slideHTML += `</div>`;
+                    } else {
+                        slideHTML += `<p><em>(Image-only slide or complex formatting not supported in parsing mode)</em></p>`;
+                    }
+                    
+                    section.innerHTML = slideHTML;
+                    DOM.slidesContainer.appendChild(section);
+                }
+            },
+
+            next: () => { if(STATE.mode === 'PRESENTING') Presentation.deck.next(); },
+            prev: () => { if(STATE.mode === 'PRESENTING') Presentation.deck.prev(); },
+            toggleZoom: (active) => {
+                if (active) DOM.presentationLayer.classList.add('zoomed');
+                else DOM.presentationLayer.classList.remove('zoomed');
+            }
+        };
+
+        /* --- 3. Gesture Core --- */
+        const Gesture = {
+            hands: null,
+            camera: null,
+            lastX: null,
+            pointHistory: [], // For circle detection
+            
+            setup: async () => {
+                Gesture.hands = new Hands({locateFile: (file) => {
+                    return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+                }});
+
+                Gesture.hands.setOptions({
+                    maxNumHands: 1,
+                    modelComplexity: 1,
+                    minDetectionConfidence: 0.7,
+                    minTrackingConfidence: 0.7
+                });
+
+                Gesture.hands.onResults(Gesture.onResults);
+
+                const camera = new Camera(DOM.video, {
+                    onFrame: async () => {
+                        await Gesture.hands.send({image: DOM.video});
+                    },
+                    width: 640,
+                    height: 480
+                });
+                camera.start();
+            },
+
+            detectPose: (landmarks) => {
+                const isFingerUp = (tip, base) => landmarks[tip].y < landmarks[base].y;
+                const indexUp = isFingerUp(8, 6);
+                const middleUp = isFingerUp(12, 10);
+                const ringUp = isFingerUp(16, 14);
+                const pinkyUp = isFingerUp(20, 18);
+
+                const fingersUpCount = [indexUp, middleUp, ringUp, pinkyUp].filter(Boolean).length;
+
+                // 1. Fist (Pause)
+                if (fingersUpCount === 0) return 'FIST';
+
+                // 2. Two fingers (Laser)
+                if (indexUp && middleUp && !ringUp && !pinkyUp) return 'VICTORY';
+
+                // 3. Open Palm (Start/Neutral)
+                if (fingersUpCount >= 4) return 'PALM';
+                
+                // 4. One Finger (Potential for circle drawing)
+                if (indexUp && !middleUp && !ringUp && !pinkyUp) return 'ONE_FINGER';
+
+                return 'UNKNOWN';
+            },
+
+            detectCircle: () => {
+                // Need at least 20 points
+                if (Gesture.pointHistory.length < 20) return false;
+
+                // Calculate Bounding Box of history
+                const xs = Gesture.pointHistory.map(p => p.x);
+                const ys = Gesture.pointHistory.map(p => p.y);
+                const minX = Math.min(...xs);
+                const maxX = Math.max(...xs);
+                const minY = Math.min(...ys);
+                const maxY = Math.max(...ys);
+
+                const width = maxX - minX;
+                const height = maxY - minY;
+
+                // Check size (must be big enough to be a deliberate gesture)
+                if (width < 0.15 || height < 0.15) return false;
+
+                // Check Aspect Ratio (roughly square)
+                const ratio = width / height;
+                if (ratio < 0.6 || ratio > 1.4) return false;
+
+                return true;
+            },
+
+            onResults: (results) => {
+                if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+                    STATE.handPresent = false;
+                    STATE.laserActive = false;
+                    return;
+                }
+
+                STATE.handPresent = true;
+                const landmarks = results.multiHandLandmarks[0];
+                const pose = Gesture.detectPose(landmarks);
+                
+                // Track Index Finger Tip
+                const indexTip = landmarks[8];
+                const wrist = landmarks[0];
+
+                STATE.pointerX = (1 - indexTip.x) * window.innerWidth;
+                STATE.pointerY = indexTip.y * window.innerHeight;
+
+                // Update Point History for Circle Detection (only if one finger or laser)
+                if (pose === 'ONE_FINGER' || pose === 'VICTORY') {
+                    Gesture.pointHistory.push({x: 1-indexTip.x, y: indexTip.y});
+                    if (Gesture.pointHistory.length > 40) Gesture.pointHistory.shift();
+                } else {
+                    // Reset history if hand opens or makes fist to prevent accidental triggers
+                    Gesture.pointHistory = [];
+                }
+
+                const now = Date.now();
+                if (now - STATE.lastGestureTime < 800) return; // Global Debounce
+
+                // --- State Machine ---
+
+                // 1. Zoom/Highlight Check (Circular Motion)
+                // We check this independently of mode transitions usually
+                if (STATE.mode === 'PRESENTING' && Gesture.detectCircle()) {
+                    STATE.zoomActive = !STATE.zoomActive;
+                    Presentation.toggleZoom(STATE.zoomActive);
+                    setStatus(STATE.zoomActive ? 'ZOOM MODE' : 'PRESENTING', STATE.zoomActive ? 'zoom' : 'active');
+                    Visuals.burst(window.innerWidth/2, window.innerHeight/2, 0x00aaff);
+                    Gesture.pointHistory = []; // Reset
+                    STATE.lastGestureTime = now;
+                    return;
+                }
+
+                // 2. Start Presentation
+                if (STATE.mode === 'READY' && pose === 'PALM') {
+                    STATE.mode = 'PRESENTING';
+                    setStatus('PRESENTING', 'active');
+                    Visuals.burst(window.innerWidth/2, window.innerHeight/2, 0x00ff88);
+                    STATE.lastGestureTime = now;
+                    return;
+                }
+
+                // 3. Presenting Controls
+                if (STATE.mode === 'PRESENTING') {
+                    if (pose === 'FIST') {
+                        STATE.mode = 'PAUSED';
+                        setStatus('PAUSED', 'paused');
+                        Presentation.toggleZoom(false); // Exit zoom on pause
+                        STATE.zoomActive = false;
+                        STATE.lastGestureTime = now;
+                        return;
+                    }
+
+                    if (pose === 'VICTORY') {
+                        STATE.laserActive = true;
+                    } else {
+                        STATE.laserActive = false;
+                        
+                        // Swipe Logic
+                        const wristX = wrist.x;
+                        if (Gesture.lastX !== null && pose === 'PALM' && !STATE.zoomActive) {
+                            const dx = wristX - Gesture.lastX;
+                            const velocity = Math.abs(dx);
+                            
+                            if (velocity > 0.05) { // Sensitivity
+                                // dx > 0 means MediaPipe X increased.
+                                // In mirrored view (scaleX-1), this means hand moved RIGHT visually.
+                                if (dx > 0) {
+                                    // Swipe RIGHT -> Next Slide
+                                    Presentation.next();
+                                    Visuals.flow('right');
+                                } else {
+                                    // Swipe LEFT -> Previous Slide
+                                    Presentation.prev();
+                                    Visuals.flow('left');
+                                }
+                                STATE.lastGestureTime = now;
+                            }
+                        }
+                        Gesture.lastX = wristX;
+                    }
+                } else if (STATE.mode === 'PAUSED') {
+                     if (pose === 'PALM') {
+                        STATE.mode = 'PRESENTING';
+                        setStatus('RESUMED', 'active');
+                        STATE.lastGestureTime = now;
+                    }
+                }
+
+                // Highlight UI Icons
+                document.querySelectorAll('.gesture-item').forEach(el => el.classList.remove('active'));
+                if (pose === 'PALM') document.getElementById('icon-palm').classList.add('active');
+                if (pose === 'VICTORY') document.getElementById('icon-laser').classList.add('active');
+                if (pose === 'FIST') document.getElementById('icon-fist').classList.add('active');
+                if (STATE.zoomActive) document.getElementById('icon-circle').classList.add('active');
+                // Swipe is transient, harder to highlight statically
+            }
+        };
+
+        /* --- 4. Visual System (Three.js) --- */
+        const Visuals = {
+            scene: null,
+            camera: null,
+            renderer: null,
+            particles: [],
+            
+            init: () => {
+                const width = window.innerWidth;
+                const height = window.innerHeight;
+
+                Visuals.scene = new THREE.Scene();
+                Visuals.camera = new THREE.OrthographicCamera(width / -2, width / 2, height / 2, height / -2, 1, 1000);
+                Visuals.camera.position.z = 10;
+
+                Visuals.renderer = new THREE.WebGLRenderer({ canvas: DOM.canvas, alpha: true, antialias: true });
+                Visuals.renderer.setSize(width, height);
+                Visuals.renderer.setPixelRatio(window.devicePixelRatio);
+
+                Visuals.animate();
+            },
+
+            createParticle: (x, y, color, speedX, speedY) => {
+                const geometry = new THREE.CircleGeometry(4, 8);
+                const material = new THREE.MeshBasicMaterial({ 
+                    color: color, 
+                    transparent: true, 
+                    opacity: 0.8 
+                });
+                const circle = new THREE.Mesh(geometry, material);
+                
+                circle.position.x = x - window.innerWidth / 2;
+                circle.position.y = -(y - window.innerHeight / 2);
+                
+                Visuals.scene.add(circle);
+                
+                return {
+                    mesh: circle,
+                    vx: speedX || (Math.random() - 0.5) * 2,
+                    vy: speedY || (Math.random() - 0.5) * 2,
+                    life: 1.0,
+                    decay: 0.02 + Math.random() * 0.03
+                };
+            },
+
+            burst: (x, y, color) => {
+                for (let i = 0; i < 20; i++) {
+                    Visuals.particles.push(Visuals.createParticle(x, y, color, (Math.random()-0.5)*10, (Math.random()-0.5)*10));
+                }
+            },
+
+            flow: (direction) => {
+                const color = 0x00aaff;
+                const speed = direction === 'right' ? 15 : -15; // Visual flow direction
+                const startX = direction === 'right' ? 0 : window.innerWidth;
+                
+                for(let i=0; i<30; i++) {
+                    const y = Math.random() * window.innerHeight;
+                    // Visuals are not mirrored, so Right flow moves +x
+                    const p = Visuals.createParticle(startX, y, color, speed, 0);
+                    p.decay = 0.01;
+                    Visuals.particles.push(p);
+                }
+            },
+
+            animate: () => {
+                requestAnimationFrame(Visuals.animate);
+
+                // Laser Logic
+                if (STATE.laserActive && STATE.mode === 'PRESENTING') {
+                    Visuals.particles.push(Visuals.createParticle(STATE.pointerX, STATE.pointerY, 0xff0055, 0, 0));
+                }
+
+                // Zoom Logic (Sparkles)
+                if (STATE.zoomActive) {
+                    if (Math.random() > 0.8) {
+                        Visuals.particles.push(Visuals.createParticle(
+                            Math.random() * window.innerWidth, 
+                            Math.random() * window.innerHeight, 
+                            0x00aaff, 0, 0
+                        ));
+                    }
+                }
+
+                // Update Particles
+                for (let i = Visuals.particles.length - 1; i >= 0; i--) {
+                    const p = Visuals.particles[i];
+                    p.mesh.position.x += p.vx;
+                    p.mesh.position.y += p.vy;
+                    p.life -= p.decay;
+                    p.mesh.material.opacity = p.life;
+                    p.mesh.scale.setScalar(p.life);
+
+                    if (p.life <= 0) {
+                        Visuals.scene.remove(p.mesh);
+                        Visuals.particles.splice(i, 1);
+                    }
+                }
+
+                Visuals.renderer.render(Visuals.scene, Visuals.camera);
+            }
+        };
+
+        /* --- Initialization --- */
+        window.addEventListener('resize', () => {
+            if(Visuals.renderer) {
+                Visuals.renderer.setSize(window.innerWidth, window.innerHeight);
+                Visuals.camera.left = window.innerWidth / -2;
+                Visuals.camera.right = window.innerWidth / 2;
+                Visuals.camera.top = window.innerHeight / 2;
+                Visuals.camera.bottom = window.innerHeight / -2;
+                Visuals.camera.updateProjectionMatrix();
+            }
+        });
+
+        // Handle File Input
+        document.getElementById('file-input').addEventListener('change', (e) => {
+            if(e.target.files[0]) {
+                Presentation.handleUpload(e.target.files[0]);
+            }
+        });
+
+        // Boot
+        Presentation.init();
+        Visuals.init();
+        
+        setTimeout(() => {
+            Gesture.setup().then(() => {
+                console.log("Vision System Ready");
+            });
+        }, 1000);
+
+    </script>
+</body>
+</html>
